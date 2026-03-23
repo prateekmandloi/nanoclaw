@@ -39,8 +39,43 @@ export async function run(_args: string[]): Promise<void> {
     }
   }
 
+  // Check acli (Rovo Dev CLI)
+  let acli: 'installed' | 'not_found' = 'not_found';
+  if (commandExists('acli')) {
+    acli = 'installed';
+  }
+
+  // Detect configured agent backend from .env
+  let agentBackend: 'claude' | 'rovodev' | 'none' = 'none';
+  const envPath = path.join(projectRoot, '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf-8');
+    const match = envContent.match(/^AGENT_BACKEND=(\S+)/m);
+    if (match) {
+      agentBackend = match[1].toLowerCase() === 'rovodev' ? 'rovodev' : 'claude';
+    }
+  }
+
+  // Check Rovo Dev auth status
+  let rovodevAuth: 'authenticated' | 'not_authenticated' | 'not_installed' =
+    'not_installed';
+  if (acli === 'installed') {
+    try {
+      const { execSync } = await import('child_process');
+      const authOutput = execSync('acli rovodev auth status 2>&1', {
+        encoding: 'utf-8',
+        timeout: 10000,
+      });
+      rovodevAuth = authOutput.includes('Authenticated')
+        ? 'authenticated'
+        : 'not_authenticated';
+    } catch {
+      rovodevAuth = 'not_authenticated';
+    }
+  }
+
   // Check existing config
-  const hasEnv = fs.existsSync(path.join(projectRoot, '.env'));
+  const hasEnv = fs.existsSync(envPath);
 
   const authDir = path.join(projectRoot, 'store', 'auth');
   const hasAuth = fs.existsSync(authDir) && fs.readdirSync(authDir).length > 0;
@@ -72,6 +107,9 @@ export async function run(_args: string[]): Promise<void> {
       wsl,
       appleContainer,
       docker,
+      acli,
+      agentBackend,
+      rovodevAuth,
       hasEnv,
       hasAuth,
       hasRegisteredGroups,
@@ -85,6 +123,9 @@ export async function run(_args: string[]): Promise<void> {
     IS_HEADLESS: headless,
     APPLE_CONTAINER: appleContainer,
     DOCKER: docker,
+    ACLI: acli,
+    AGENT_BACKEND: agentBackend,
+    ROVODEV_AUTH: rovodevAuth,
     HAS_ENV: hasEnv,
     HAS_AUTH: hasAuth,
     HAS_REGISTERED_GROUPS: hasRegisteredGroups,

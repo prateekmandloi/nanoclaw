@@ -33,6 +33,15 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 # Install agent-browser and claude-code globally
 RUN npm install -g agent-browser @anthropic-ai/claude-code
 
+# Install acli (Atlassian CLI) for rovodev backend support
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then ACLI_ARCH="amd64"; \
+    elif [ "$ARCH" = "arm64" ]; then ACLI_ARCH="arm64"; \
+    else echo "Unsupported arch: $ARCH" && exit 1; fi && \
+    curl -fsSL "https://acli.atlassian.com/linux/1.3.14-stable/acli_1.3.14-stable_linux_${ACLI_ARCH}.tar.gz" \
+    | tar -xz --strip-components=1 -C /usr/local/bin && \
+    chmod +x /usr/local/bin/acli
+
 # Create app directory
 WORKDIR /app
 

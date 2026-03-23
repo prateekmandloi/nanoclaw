@@ -2,11 +2,13 @@
  * Container Runner for NanoClaw
  * Spawns agent execution in containers and handles IPC
  */
-import { ChildProcess, exec, spawn } from 'child_process';
+import { ChildProcess, exec, execSync, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
+  AGENT_BACKEND,
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
@@ -14,6 +16,8 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  ROVODEV_MODEL,
+  ROVODEV_SITE_URL,
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
@@ -54,6 +58,80 @@ interface VolumeMount {
   hostPath: string;
   containerPath: string;
   readonly: boolean;
+}
+
+/**
+ * Extract Rovo Dev API token from the macOS keychain.
+ * The token is stored by `acli` under service "acli" with account "rovodev:<account_id>".
+ * Falls back to ROVODEV_API_TOKEN env var if keychain is unavailable (e.g., on Linux).
+ */
+function getRovoDevToken(): string | undefined {
+  // Check env var first (allows manual override)
+  if (process.env.ROVODEV_API_TOKEN) {
+    return process.env.ROVODEV_API_TOKEN;
+  }
+
+  if (process.platform !== 'darwin') {
+    logger.warn('Rovo Dev keychain extraction only supported on macOS; set ROVODEV_API_TOKEN env var');
+    return undefined;
+  }
+
+  try {
+    // Read the account ID from acli's config file
+    const configPath = path.join(
+      process.env.HOME || os.homedir(),
+      '.config', 'acli', 'rovodev_config.yaml',
+    );
+    let accountId: string | undefined;
+    if (fs.existsSync(configPath)) {
+      const content = fs.readFileSync(configPath, 'utf-8');
+      const match = content.match(/accountId:\s*(\S+)/);
+      if (match) accountId = `rovodev:${match[1]}`;
+    }
+    if (!accountId) {
+      logger.warn('No Rovo Dev accountId found in config');
+      return undefined;
+    }
+
+    const raw = execSync(
+      `security find-generic-password -s "acli" -a "${accountId}" -w 2>/dev/null`,
+      { encoding: 'utf-8', timeout: 5000 },
+    ).trim();
+
+    if (!raw) return undefined;
+
+    // Decode go-keyring-base64: prefix (macOS uses -D for decode)
+    const b64 = raw.replace(/^go-keyring-base64:/, '');
+    return Buffer.from(b64, 'base64').toString('utf-8');
+  } catch {
+    logger.warn('Failed to extract Rovo Dev token from keychain');
+    return undefined;
+  }
+}
+
+/**
+ * Read the Rovo Dev email from acli config.
+ */
+function getRovoDevEmail(): string | undefined {
+  if (process.env.ROVODEV_EMAIL) {
+    return process.env.ROVODEV_EMAIL;
+  }
+
+  const configPath = path.join(
+    process.env.HOME || os.homedir(),
+    '.config', 'acli', 'rovodev_config.yaml',
+  );
+
+  try {
+    if (fs.existsSync(configPath)) {
+      const content = fs.readFileSync(configPath, 'utf-8');
+      const match = content.match(/email:\s*(\S+)/);
+      if (match) return match[1];
+    }
+  } catch {
+    // Ignore
+  }
+  return undefined;
 }
 
 function buildVolumeMounts(
@@ -199,6 +277,21 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Rovo Dev auth: mount host ~/.rovodev/ into container (read-only)
+  if (AGENT_BACKEND === 'rovodev') {
+    const rovodevDir = path.join(
+      process.env.HOME || os.homedir(),
+      '.rovodev',
+    );
+    if (fs.existsSync(rovodevDir)) {
+      mounts.push({
+        hostPath: rovodevDir,
+        containerPath: '/home/node/.rovodev',
+        readonly: true,
+      });
+    }
+  }
+
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(
@@ -221,21 +314,44 @@ function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
-  // Route API traffic through the credential proxy (containers never see real secrets)
-  args.push(
-    '-e',
-    `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
-  );
+  // Pass agent backend selection to container
+  args.push('-e', `AGENT_BACKEND=${AGENT_BACKEND}`);
 
-  // Mirror the host's auth method with a placeholder value.
-  // API key mode: SDK sends x-api-key, proxy replaces with real key.
-  // OAuth mode:   SDK exchanges placeholder token for temp API key,
-  //               proxy injects real OAuth token on that exchange request.
-  const authMode = detectAuthMode();
-  if (authMode === 'api-key') {
-    args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+  if (AGENT_BACKEND === 'rovodev') {
+    // Rovo Dev backend: extract API token from host keychain and pass to container.
+    // The container will authenticate on startup before running serve.
+    const rovodevToken = getRovoDevToken();
+    if (rovodevToken) {
+      args.push('-e', `ROVODEV_API_TOKEN=${rovodevToken}`);
+    }
+    const rovodevEmail = getRovoDevEmail();
+    if (rovodevEmail) {
+      args.push('-e', `ROVODEV_EMAIL=${rovodevEmail}`);
+    }
+    if (ROVODEV_MODEL) {
+      args.push('-e', `ROVODEV_MODEL=${ROVODEV_MODEL}`);
+    }
+    if (ROVODEV_SITE_URL) {
+      args.push('-e', `ROVODEV_SITE_URL=${ROVODEV_SITE_URL}`);
+    }
   } else {
-    args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+    // Claude backend: route API traffic through the credential proxy
+    // (containers never see real secrets)
+    args.push(
+      '-e',
+      `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
+    );
+
+    // Mirror the host's auth method with a placeholder value.
+    // API key mode: SDK sends x-api-key, proxy replaces with real key.
+    // OAuth mode:   SDK exchanges placeholder token for temp API key,
+    //               proxy injects real OAuth token on that exchange request.
+    const authMode = detectAuthMode();
+    if (authMode === 'api-key') {
+      args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+    } else {
+      args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+    }
   }
 
   // Runtime-specific args for host gateway resolution

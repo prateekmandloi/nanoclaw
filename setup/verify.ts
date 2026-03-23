@@ -96,13 +96,35 @@ export async function run(_args: string[]): Promise<void> {
     }
   }
 
-  // 3. Check credentials
+  // 3. Check credentials (backend-aware)
   let credentials = 'missing';
+  let agentBackend = 'claude';
   const envFile = path.join(projectRoot, '.env');
   if (fs.existsSync(envFile)) {
     const envContent = fs.readFileSync(envFile, 'utf-8');
-    if (/^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=/m.test(envContent)) {
-      credentials = 'configured';
+    const backendMatch = envContent.match(/^AGENT_BACKEND=(\S+)/m);
+    if (backendMatch) {
+      agentBackend = backendMatch[1].toLowerCase();
+    }
+
+    if (agentBackend === 'rovodev') {
+      // Rovo Dev: check acli auth status
+      try {
+        const authOutput = execSync('acli rovodev auth status 2>&1', {
+          encoding: 'utf-8',
+          timeout: 10000,
+        });
+        if (authOutput.includes('Authenticated')) {
+          credentials = 'configured';
+        }
+      } catch {
+        // Auth check failed — credentials missing
+      }
+    } else {
+      // Claude: check for OAuth token or API key
+      if (/^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=/m.test(envContent)) {
+        credentials = 'configured';
+      }
     }
   }
 
@@ -179,6 +201,7 @@ export async function run(_args: string[]): Promise<void> {
   emitStatus('VERIFY', {
     SERVICE: service,
     CONTAINER_RUNTIME: containerRuntime,
+    AGENT_BACKEND: agentBackend,
     CREDENTIALS: credentials,
     CONFIGURED_CHANNELS: configuredChannels.join(','),
     CHANNEL_AUTH: JSON.stringify(channelAuth),
