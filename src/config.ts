@@ -6,13 +6,38 @@ import { readEnvFile } from './env.js';
 // Read config values from .env (falls back to process.env).
 // Secrets (API keys, tokens) are NOT read here — they are loaded only
 // by the credential proxy (credential-proxy.ts), never exposed to containers.
-const envConfig = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER']);
+const envConfig = readEnvFile([
+  'ASSISTANT_NAME',
+  'ASSISTANT_HAS_OWN_NUMBER',
+  'AGENT_BACKEND',
+  'ROVODEV_MODEL',
+  'ROVODEV_SITE_URL',
+]);
 
 export const ASSISTANT_NAME =
   process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
 export const ASSISTANT_HAS_OWN_NUMBER =
   (process.env.ASSISTANT_HAS_OWN_NUMBER ||
     envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
+
+// Agent backend: "claude" (default) or "rovodev"
+export type AgentBackend = 'claude' | 'rovodev';
+const rawBackend = (
+  process.env.AGENT_BACKEND ||
+  envConfig.AGENT_BACKEND ||
+  'claude'
+).toLowerCase();
+export const AGENT_BACKEND: AgentBackend =
+  rawBackend === 'rovodev' ? 'rovodev' : 'claude';
+
+// Rovo Dev model override (optional)
+export const ROVODEV_MODEL: string | undefined =
+  process.env.ROVODEV_MODEL || envConfig.ROVODEV_MODEL || undefined;
+
+// Rovo Dev site URL (required when user has multiple Atlassian sites)
+export const ROVODEV_SITE_URL: string | undefined =
+  process.env.ROVODEV_SITE_URL || envConfig.ROVODEV_SITE_URL || undefined;
+
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 

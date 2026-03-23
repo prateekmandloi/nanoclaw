@@ -8,6 +8,7 @@ const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
 // Mock config
 vi.mock('./config.js', () => ({
+  AGENT_BACKEND: 'claude',
   CONTAINER_IMAGE: 'nanoclaw-agent:latest',
   CONTAINER_MAX_OUTPUT_SIZE: 10485760,
   CONTAINER_TIMEOUT: 1800000, // 30min
@@ -15,6 +16,8 @@ vi.mock('./config.js', () => ({
   DATA_DIR: '/tmp/nanoclaw-test-data',
   GROUPS_DIR: '/tmp/nanoclaw-test-groups',
   IDLE_TIMEOUT: 1800000, // 30min
+  ROVODEV_MODEL: undefined,
+  ROVODEV_SITE_URL: undefined,
   TIMEZONE: 'America/Los_Angeles',
 }));
 

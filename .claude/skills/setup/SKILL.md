@@ -112,7 +112,17 @@ Run `npx tsx setup/index.ts --step container -- --runtime <chosen>` and parse th
 
 **If TEST_OK=false but BUILD_OK=true:** The image built but won't run. Check logs — common cause is runtime not fully started. Wait a moment and retry the test.
 
-## 4. Claude Authentication (No Script)
+## 4. Agent Backend Authentication (No Script)
+
+First, determine which agent backend to use. Check environment results for `AGENT_BACKEND` and `ACLI`.
+
+If AGENT_BACKEND is already set in `.env`, confirm with user: keep or reconfigure?
+
+If not yet configured, AskUserQuestion: Which agent backend do you want to use?
+- **Claude** — uses Claude Agent SDK (requires Claude Pro/Max subscription or Anthropic API key)
+- **Rovo Dev** — uses Atlassian Rovo Dev CLI (requires Atlassian account with Rovo Dev access)
+
+### 4a. Claude Backend
 
 If HAS_ENV=true from step 2, read `.env` and check for `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`. If present, confirm with user: keep or reconfigure?
 
@@ -121,6 +131,41 @@ AskUserQuestion: Claude subscription (Pro/Max) vs Anthropic API key?
 **Subscription:** Tell user to run `claude setup-token` in another terminal, copy the token, add `CLAUDE_CODE_OAUTH_TOKEN=<token>` to `.env`. Do NOT collect the token in chat.
 
 **API key:** Tell user to add `ANTHROPIC_API_KEY=<key>` to `.env`.
+
+Ensure `AGENT_BACKEND=claude` is set in `.env` (or omit it — claude is the default).
+
+### 4b. Rovo Dev Backend
+
+**Step 1: Check `acli` CLI**
+
+If ACLI=not_found from step 2:
+- macOS: `brew tap atlassian/acli && brew install acli`
+- Linux: download from `https://acli.atlassian.com/linux/1.3.14-stable/acli_1.3.14-stable_linux_amd64.tar.gz`, extract to `/usr/local/bin/acli`
+- Verify: `acli --version`
+
+**Step 2: Authenticate**
+
+If ROVODEV_AUTH=not_authenticated from step 2:
+- Tell user to run `acli rovodev auth login` in their terminal. This opens a browser for Atlassian OAuth. Wait for them to confirm authentication is complete.
+- Verify: `acli rovodev auth status` should show `✓ Authenticated`
+
+If ROVODEV_AUTH=authenticated: already configured, continue.
+
+**Step 3: Site URL**
+
+AskUserQuestion: What is your Atlassian site URL? (e.g., `https://yourteam.atlassian.net`)
+
+Add to `.env`:
+```
+AGENT_BACKEND=rovodev
+ROVODEV_SITE_URL=<site_url>
+```
+
+**Step 4: Verify**
+
+Run a quick test: `acli rovodev serve 19999 --non-interactive --disable-session-token --site-url <site_url>` — wait for healthcheck, then `POST /shutdown`. If it starts successfully, Rovo Dev is properly configured.
+
+**Optional:** AskUserQuestion: Do you want to override the default model? If yes, add `ROVODEV_MODEL=<model>` to `.env`. Available models can be checked via `GET /v3/agent-models` after starting serve.
 
 ## 5. Set Up Channels
 
@@ -198,7 +243,7 @@ Run `npx tsx setup/index.ts --step verify` and parse the status block.
 **If STATUS=failed, fix each:**
 - SERVICE=stopped → `npm run build`, then restart: `launchctl kickstart -k gui/$(id -u)/com.nanoclaw` (macOS) or `systemctl --user restart nanoclaw` (Linux) or `bash start-nanoclaw.sh` (WSL nohup)
 - SERVICE=not_found → re-run step 7
-- CREDENTIALS=missing → re-run step 4
+- CREDENTIALS=missing → re-run step 4 (choose the correct backend: Claude or Rovo Dev)
 - CHANNEL_AUTH shows `not_found` for any channel → re-invoke that channel's skill (e.g. `/add-telegram`)
 - REGISTERED_GROUPS=0 → re-invoke the channel skills from step 5
 - MOUNT_ALLOWLIST=missing → `npx tsx setup/index.ts --step mounts -- --empty`
@@ -210,6 +255,8 @@ Tell user to test: send a message in their registered chat. Show: `tail -f logs/
 **Service not starting:** Check `logs/nanoclaw.error.log`. Common: wrong Node path (re-run step 7), missing `.env` (step 4), missing channel credentials (re-invoke channel skill).
 
 **Container agent fails ("Claude Code process exited with code 1"):** Ensure the container runtime is running — `open -a Docker` (macOS Docker), `container system start` (Apple Container), or `sudo systemctl start docker` (Linux). Check container logs in `groups/main/logs/container-*.log`.
+
+**Rovo Dev backend fails to authenticate in container:** Check `acli rovodev auth status` on the host. If authenticated, ensure `.env` has `ROVODEV_SITE_URL` set (required when you have multiple Atlassian sites). The host extracts the API token from the macOS keychain automatically — on Linux, set `ROVODEV_API_TOKEN` manually in `.env`.
 
 **No response to messages:** Check trigger pattern. Main channel doesn't need prefix. Check DB: `npx tsx setup/index.ts --step verify`. Check `logs/nanoclaw.log`.
 
