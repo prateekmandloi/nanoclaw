@@ -7,6 +7,8 @@ description: Add /compact command for manual context compaction. Solves context 
 
 Adds a `/compact` session command that compacts conversation history to fight context rot in long-running sessions. Uses the Claude Agent SDK's built-in `/compact` slash command — no synthetic system prompts.
 
+> **Note:** This skill requires the Claude backend (`AGENT_BACKEND=claude` or unset). The `/compact` command is not supported with the Rovo Dev backend, which uses a different session model.
+
 **Session contract:** `/compact` keeps the same logical session alive. The SDK returns a new session ID after compaction (via the `init` system message), which the agent-runner forwards to the orchestrator as `newSessionId`. No destructive reset occurs — the agent retains summarized context.
 
 ## Phase 1: Pre-flight

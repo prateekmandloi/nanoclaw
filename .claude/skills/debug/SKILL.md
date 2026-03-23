@@ -14,7 +14,7 @@ Host (macOS)                          Container (Linux VM)
 ─────────────────────────────────────────────────────────────
 src/container-runner.ts               container/agent-runner/
     │                                      │
-    │ spawns container                      │ runs Claude Agent SDK
+    │ spawns container                      │ runs Claude Agent SDK or Rovo Dev
     │ with volume mounts                   │ with MCP servers
     │                                      │
     ├── data/env/env ──────────────> /workspace/env-dir/env
@@ -57,13 +57,13 @@ Debug level shows:
 
 ## Common Issues
 
-### 1. "Claude Code process exited with code 1"
+### 1. "Claude Code process exited with code 1" or agent fails to start
 
 **Check the container log file** in `groups/{folder}/logs/container-*.log`
 
 Common causes:
 
-#### Missing Authentication
+#### Missing Authentication (Claude backend)
 ```
 Invalid API key · Please run /login
 ```
@@ -73,6 +73,29 @@ cat .env  # Should show one of:
 # CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...  (subscription)
 # ANTHROPIC_API_KEY=sk-ant-api03-...        (pay-per-use)
 ```
+
+#### Missing Authentication (Rovo Dev backend)
+```
+Authentication required
+```
+**Fix:** Authenticate on the host first, then ensure config is set:
+```bash
+acli rovodev auth login           # authenticate on host
+acli rovodev auth status          # verify: should show ✓ Authenticated
+cat .env                          # should show:
+# AGENT_BACKEND=rovodev
+# ROVODEV_SITE_URL=https://yoursite.atlassian.net
+```
+On macOS, the API token is extracted from the keychain automatically. On Linux, set `ROVODEV_API_TOKEN` in `.env`.
+
+#### Rovo Dev serve fails to start
+```
+Failed to become healthy within 60000ms
+```
+**Fix:** Check container logs for errors. Common causes:
+- Missing `ROVODEV_SITE_URL` when you have multiple Atlassian sites
+- Network issues (the container needs outbound internet access to reach Atlassian APIs)
+- Invalid or expired auth token — re-run `acli rovodev auth login` on host
 
 #### Root User Restriction
 ```
@@ -88,10 +111,17 @@ cat .env  # Should show one of:
 
 To verify env vars are reaching the container:
 ```bash
+# Claude backend
 echo '{}' | docker run -i \
   -v $(pwd)/data/env:/workspace/env-dir:ro \
   --entrypoint /bin/bash nanoclaw-agent:latest \
   -c 'export $(cat /workspace/env-dir/env | xargs); echo "OAuth: ${#CLAUDE_CODE_OAUTH_TOKEN} chars, API: ${#ANTHROPIC_API_KEY} chars"'
+
+# Rovo Dev backend
+echo '{}' | docker run -i \
+  -e AGENT_BACKEND=rovodev \
+  --entrypoint /bin/bash nanoclaw-agent:latest \
+  -c 'echo "Backend: $AGENT_BACKEND, Token: ${#ROVODEV_API_TOKEN} chars, Email: $ROVODEV_EMAIL, Site: $ROVODEV_SITE_URL"'
 ```
 
 ### 3. Mount Issues
