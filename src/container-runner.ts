@@ -72,7 +72,9 @@ function getRovoDevToken(): string | undefined {
   }
 
   if (process.platform !== 'darwin') {
-    logger.warn('Rovo Dev keychain extraction only supported on macOS; set ROVODEV_API_TOKEN env var');
+    logger.warn(
+      'Rovo Dev keychain extraction only supported on macOS; set ROVODEV_API_TOKEN env var',
+    );
     return undefined;
   }
 
@@ -80,7 +82,9 @@ function getRovoDevToken(): string | undefined {
     // Read the account ID from acli's config file
     const configPath = path.join(
       process.env.HOME || os.homedir(),
-      '.config', 'acli', 'rovodev_config.yaml',
+      '.config',
+      'acli',
+      'rovodev_config.yaml',
     );
     let accountId: string | undefined;
     if (fs.existsSync(configPath)) {
@@ -119,7 +123,9 @@ function getRovoDevEmail(): string | undefined {
 
   const configPath = path.join(
     process.env.HOME || os.homedir(),
-    '.config', 'acli', 'rovodev_config.yaml',
+    '.config',
+    'acli',
+    'rovodev_config.yaml',
   );
 
   try {
@@ -279,10 +285,7 @@ function buildVolumeMounts(
 
   // Rovo Dev auth: mount host ~/.rovodev/ into container (read-only)
   if (AGENT_BACKEND === 'rovodev') {
-    const rovodevDir = path.join(
-      process.env.HOME || os.homedir(),
-      '.rovodev',
-    );
+    const rovodevDir = path.join(process.env.HOME || os.homedir(), '.rovodev');
     if (fs.existsSync(rovodevDir)) {
       mounts.push({
         hostPath: rovodevDir,
