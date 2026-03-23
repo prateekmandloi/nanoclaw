@@ -44,6 +44,47 @@ Then run `/setup`. Claude Code handles everything: dependencies, authentication,
 
 > **Note:** Commands prefixed with `/` (like `/setup`, `/add-whatsapp`) are [Claude Code skills](https://code.claude.com/docs/en/skills). Type them inside the `claude` CLI prompt, not in your regular terminal. If you don't have Claude Code installed, get it at [claude.com/product/claude-code](https://claude.com/product/claude-code).
 
+### Using Rovo Dev Backend (Alternative)
+
+NanoClaw also supports [Rovo Dev](https://developer.atlassian.com/cloud/rovo/) as an alternative agent backend. Both backends coexist — switch with a single config change.
+
+**Prerequisites:** [Atlassian CLI](https://developer.atlassian.com/cloud/acli/) (`acli`) and an Atlassian account with Rovo Dev access.
+
+```bash
+# 1. Install acli
+brew tap atlassian/acli && brew install acli
+
+# 2. Authenticate
+acli rovodev auth login
+
+# 3. Configure .env
+cat >> .env << EOF
+AGENT_BACKEND=rovodev
+ROVODEV_SITE_URL=https://yoursite.atlassian.net
+EOF
+
+# 4. Build container and run
+./container/build.sh
+npm run dev
+```
+
+The `/setup` skill also walks through Rovo Dev configuration interactively (Step 4b).
+
+<details>
+<summary>Rovo Dev configuration options</summary>
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AGENT_BACKEND=rovodev` | Yes | Switches from Claude to Rovo Dev |
+| `ROVODEV_SITE_URL` | Yes* | Your Atlassian site URL (*required if you have multiple sites) |
+| `ROVODEV_MODEL` | No | Model override (e.g., `anthropic:claude-sonnet-4`) |
+
+On macOS, the API token is automatically extracted from your keychain. On Linux, set `ROVODEV_API_TOKEN` in `.env`.
+
+To switch back to Claude: remove `AGENT_BACKEND` from `.env` (or set it to `claude`).
+
+</details>
+
 ## Philosophy
 
 **Small enough to understand.** One process, a few source files and no microservices. If you want to understand the full NanoClaw codebase, just ask Claude Code to walk you through it.
@@ -123,13 +164,13 @@ Skills we'd like to see:
 
 - macOS or Linux
 - Node.js 20+
-- [Claude Code](https://claude.ai/download)
+- [Claude Code](https://claude.ai/download) or [Atlassian CLI](https://developer.atlassian.com/cloud/acli/) (`acli`) for Rovo Dev backend
 - [Apple Container](https://github.com/apple/container) (macOS) or [Docker](https://docker.com/products/docker-desktop) (macOS/Linux)
 
 ## Architecture
 
 ```
-Channels --> SQLite --> Polling loop --> Container (Claude Agent SDK) --> Response
+Channels --> SQLite --> Polling loop --> Container (Claude Agent SDK or Rovo Dev) --> Response
 ```
 
 Single Node.js process. Channels are added via skills and self-register at startup — the orchestrator connects whichever ones have credentials present. Agents execute in isolated Linux containers with filesystem isolation. Only mounted directories are accessible. Per-group message queue with concurrency control. IPC via filesystem.
